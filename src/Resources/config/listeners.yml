@@ -1,0 +1,8 @@
+services:
+  Richardhj\ContaoAjaxReloadElementBundle\EventListener\AjaxReloadElementListener:
+    public: true
+    arguments:
+      - '@contao.image.picture_factory'
+  
+  Richardhj\ContaoAjaxReloadElementBundle\EventListener\DataContanier\ModifyPalettesListener:
+    public: true

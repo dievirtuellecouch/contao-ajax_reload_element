@@ -1,0 +1,44 @@
+{
+  "name": "richardhj/contao-ajax_reload_element",
+  "description": "AjaxReloadElement for Contao OpenSource CMS",
+  "keywords": [
+    "contao",
+    "ajax",
+    "ajaxform",
+    "ajax reload"
+  ],
+  "type": "contao-bundle",
+  "version": "2.2.0",
+  "license": "LGPL-3.0-or-later",
+  "authors": [
+    {
+      "name": "Richard Henkenjohann",
+      "email": "richardhenkenjohann@googlemail.com",
+      "role": "Developer"
+    }
+  ],
+  "support": {
+    "issues": "https://github.com/richardhj/contao-ajax_reload_element/issues",
+    "source": "https://github.com/richardhj/contao-ajax_reload_element"
+  },
+  "require": {
+    "php": "^8.1",
+    "contao/core-bundle": "^4.13 || ^5.3",
+    "contao-community-alliance/composer-plugin": "^3.0",
+    "contao-community-alliance/url-builder": "^1.2",
+    "symfony/http-foundation": "^3.3 || ^4.0 || ^5.0 || ^6.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "Richardhj\\ContaoAjaxReloadElementBundle\\": "src/"
+    }
+  },
+  "extra": {
+    "contao-manager-plugin": "Richardhj\\ContaoAjaxReloadElementBundle\\ContaoManager\\Plugin",
+    "contao": {
+      "sources": {
+        "src/Resources/public": "assets/ajax_reload_element"
+      }
+    }
+  }
+}
