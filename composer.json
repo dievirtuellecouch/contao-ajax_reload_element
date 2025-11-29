@@ -1,14 +1,8 @@
 {
   "name": "dvc/contao-ajax_reload_element",
   "description": "AjaxReloadElement for Contao OpenSource CMS",
-  "keywords": [
-    "contao",
-    "ajax",
-    "ajaxform",
-    "ajax reload"
-  ],
   "type": "contao-bundle",
-  "version": "2.2.0",
+  "version": "1.0.1",
   "license": "LGPL-3.0-or-later",
   "authors": [
     {
@@ -16,11 +10,7 @@
       "email": "richardhenkenjohann@googlemail.com",
       "role": "Developer"
     }
-  ],
-  "support": {
-    "issues": "https://github.com/richardhj/contao-ajax_reload_element/issues",
-    "source": "https://github.com/richardhj/contao-ajax_reload_element"
-  },
+  ], 
   "require": {
     "php": "^8.1",
     "contao/core-bundle": "^4.13 || ^5.3",
