@@ -1,0 +1,63 @@
+<script>
+// Async pagination for Contao news list using dvc ajax_reload_element (vanilla JS)
+(function(){
+  function closest(el, selector) { return el && el.closest ? el.closest(selector) : null; }
+  function onClick(e) {
+    var link = e.target.closest('.pagination a, .newscategories a');
+    if (!link) return;
+    var mod = closest(link, '.mod_newslist');
+    if (!mod) return;
+    var attr = mod.getAttribute('data-ajax-reload-element');
+    if (!attr) return; // fallback to normal navigation
+    e.preventDefault();
+    var content = mod.querySelector('.blog-list, .news-list');
+    var token = mod.getAttribute('data-ajax-reload-token') || (content ? content.getAttribute('data-request-token') : '');
+    var rawHref = link.getAttribute('href');
+    var url = new URL(rawHref, window.location.origin);
+    var pageNum = url.searchParams.get('page');
+    if (!pageNum) {
+      // fall back to first "page_*" parameter (e.g. page_n12)
+      url.searchParams.forEach(function(v,k){ if (!pageNum && /^page_/i.test(k)) { pageNum = v; url.searchParams.delete(k); } });
+    }
+    if (pageNum) { url.searchParams.set('page', pageNum); }
+    var page = url.pathname + (url.search || '');
+    var data = new FormData();
+    data.append('ajax_reload_element', attr);
+    if (token) data.append('REQUEST_TOKEN', token);
+    fetch(page, {
+      method:'POST',
+      credentials:'same-origin',
+      headers:{
+        'X-Requested-With':'XMLHttpRequest',
+        'Accept':'application/json'
+      },
+      body:data
+    })
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        if (res && res.status === 'ok' && res.html) {
+          var tmp = document.createElement('div'); tmp.innerHTML = res.html;
+          var next = tmp.firstElementChild;
+          if (next) {
+            mod.replaceWith(next);
+            try { next.scrollIntoView({behavior:'smooth', block:'start', inline:'nearest'}); } catch(e) { /* fallback below */ }
+            if (!('scrollBehavior' in document.documentElement.style)) {
+              var top = next.getBoundingClientRect().top + (window.pageYOffset || document.documentElement.scrollTop || 0);
+              window.scrollTo(0, top);
+            }
+          } else {
+            // push pretty page param
+            if (pageNum) { try { history.pushState(null, '', url.pathname + (url.search || '')); } catch(e) {} }
+            location.href = link.href;
+          }
+        } else {
+          // push pretty page param
+          if (pageNum) { try { history.pushState(null, '', url.pathname + (url.search || '')); } catch(e) {} }
+          location.href = link.href;
+        }
+      })
+      .catch(function(){ location.href = link.href; });
+  }
+  document.addEventListener('click', onClick);
+})();
+</script>

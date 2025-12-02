@@ -19,10 +19,12 @@ use Contao\Controller as ContaoController;
 use Contao\CoreBundle\Image\PictureFactoryInterface;
 use Contao\Environment;
 use Contao\FrontendTemplate;
+use Contao\StringUtil;
 use Contao\Input;
 use Contao\Model;
 use Contao\ModuleModel;
 use Contao\Template;
+use Contao\System;
 use ContaoCommunityAlliance\UrlBuilder\UrlBuilder;
 use ReflectionClass;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -33,6 +35,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
  */
 class AjaxReloadElementListener
 {
+    private static bool $jsInjected = false;
 
     const TYPE_MODULE  = 'mod';
     const TYPE_CONTENT = 'ce';
@@ -73,12 +76,21 @@ class AjaxReloadElementListener
 
         // cssID is parsed in all common templates
         // Use cssID for our attribute
+        $token = System::getContainer()->get('contao.csrf.token_manager')->getDefaultTokenValue();
         $template->cssID .= sprintf(
-            ' data-ajax-reload-element="%s::%u"%s',
+            ' data-ajax-reload-element="%s::%u"%s data-ajax-reload-token="%s"',
             $type,
             $template->id,
-            $template->ajaxReloadFormSubmit ? ' data-ajax-reload-form-submit=""' : ''
+            $template->ajaxReloadFormSubmit ? ' data-ajax-reload-form-submit=""' : '',
+            htmlspecialchars($token, ENT_QUOTES)
         );
+
+        // Inject the pagination script once per page if at least one element allows AJAX reload
+        if (!self::$jsInjected) {
+            $tpl = new FrontendTemplate('j_ajax_reload_pagination');
+            $GLOBALS['TL_BODY'][] = $tpl->parse();
+            self::$jsInjected = true;
+        }
     }
 
     /**
@@ -101,7 +113,7 @@ class AjaxReloadElementListener
         $element       = null;
         $elementParser = [];
         $data          = [];
-        list ($elementType, $elementId) = trimsplit('::', $paramElement);
+        list ($elementType, $elementId) = StringUtil::trimsplit('::', $paramElement);
 
         // Remove the get parameter from the url
         $requestUrl = UrlBuilder::fromUrl('/'.Environment::get('request'));
@@ -110,6 +122,26 @@ class AjaxReloadElementListener
 
         // Unset the get parameter (as it manipulates MetaModels filter url)
         Input::setGet('ajax_reload_element', null);
+
+        // Support generic ?page=2 as fallback for Contao's element-specific pagination (e.g. page_n<ID>)
+        $genericPage = Input::get('page');
+        if (null !== $genericPage) {
+            $pageParamName = null;
+            switch ($elementType) {
+                case self::TYPE_MODULE:
+                    $pageParamName = 'page_n' . $elementId;
+                    break;
+                case self::TYPE_CONTENT:
+                    $pageParamName = 'page_c' . $elementId;
+                    break;
+                case self::TYPE_ARTICLE:
+                    $pageParamName = 'page_a' . $elementId;
+                    break;
+            }
+            if ($pageParamName && null === Input::get($pageParamName)) {
+                Input::setGet($pageParamName, $genericPage);
+            }
+        }
 
         switch ($elementType) {
             case self::TYPE_MODULE:
@@ -140,10 +172,14 @@ class AjaxReloadElementListener
 
         // Set theme and layout related information in the page object (see #10)
         $theme = $layout->getRelated('pid');
-        $this->pictureFactory->setDefaultDensities($theme->defaultImageDensities);
+        if ($theme && isset($theme->defaultImageDensities) && $theme->defaultImageDensities !== null && $theme->defaultImageDensities !== '') {
+            $this->pictureFactory->setDefaultDensities($theme->defaultImageDensities);
+        }
         $page->layoutId = $layout->id;
         $page->template = $layout->template ?: 'fe_page';
-        $page->templateGroup = $theme->templates;
+        if ($theme && isset($theme->templates) && $theme->templates) {
+            $page->templateGroup = $theme->templates;
+        }
         list($strFormat, $strVariant) = explode('_', $layout->doctype) + array(null, null);
         $page->outputFormat = $strFormat;
         $page->outputVariant = $strVariant;
@@ -151,10 +187,18 @@ class AjaxReloadElementListener
         // Parse the element
         $return = $elementParser($element);
 
-        // Replace insert tags and then re-replace the request_token tag in case a form element has been loaded via insert tag
-        $return = ContaoController::replaceInsertTags($return, false);
-        $return = str_replace(['{{request_token}}', '[{]', '[}]'], [REQUEST_TOKEN, '{{', '}}'], $return);
-        $return = ContaoController::replaceDynamicScriptTags($return); // see contao/core#4203
+        // Replace insert tags using the parser (Contao 5)
+        $parser = System::getContainer()->get('contao.insert_tag.parser');
+        $return = $parser->replace($return);
+
+        // Ensure request token is replaced in case it remained
+        $token = System::getContainer()->get('contao.csrf.token_manager')->getDefaultTokenValue();
+        $return = str_replace(['{{request_token}}', '[{]', '[}]'], [$token, '{{', '}}'], $return);
+
+        // Replace dynamic script tags
+        if (method_exists(ContaoController::class, 'replaceDynamicScriptTags')) {
+            $return = ContaoController::replaceDynamicScriptTags($return); // see contao/core#4203
+        }
 
         $data['status'] = 'ok';
         $data['html']   = $return;
