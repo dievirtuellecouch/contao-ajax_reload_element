@@ -2,7 +2,7 @@
   "name": "dvc/contao-ajax_reload_element",
   "description": "AjaxReloadElement for Contao OpenSource CMS",
   "type": "contao-bundle",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "license": "LGPL-3.0-or-later",
   "authors": [
     {
