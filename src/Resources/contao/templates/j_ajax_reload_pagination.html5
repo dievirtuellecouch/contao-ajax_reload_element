@@ -1,0 +1,132 @@
+<script>
+// Async reload support for Contao news lists and Codefog news categories.
+(function(){
+  function closest(el, selector) { return el && el.closest ? el.closest(selector) : null; }
+  function unique(elements) {
+    return elements.filter(function (element, index, all) {
+      return element && all.indexOf(element) === index;
+    });
+  }
+  function getRequestToken(element) {
+    if (!element) {
+      return '';
+    }
+    var token = element.getAttribute('data-ajax-reload-token');
+    if (token) {
+      return token;
+    }
+    var tokenElement = element.querySelector('[data-request-token]');
+    return tokenElement ? (tokenElement.getAttribute('data-request-token') || '') : '';
+  }
+  function findRelatedNewsModule(categoryModule) {
+    var scope = categoryModule;
+    while (scope) {
+      var newsModule = scope.querySelector ? scope.querySelector('.mod_newslist[data-ajax-reload-element]') : null;
+      if (newsModule && newsModule !== categoryModule) {
+        return newsModule;
+      }
+      scope = scope.parentElement;
+    }
+    return null;
+  }
+  function getReloadTargets(link) {
+    var categoryModule = closest(link, '.mod_newscategories');
+    if (categoryModule) {
+      return unique([
+        findRelatedNewsModule(categoryModule),
+        closest(link, '.mod_newscategories[data-ajax-reload-element]')
+      ]);
+    }
+    return unique([
+      closest(link, '.mod_newslist[data-ajax-reload-element]'),
+      closest(link, '[data-ajax-reload-element]')
+    ]);
+  }
+  function replaceTarget(target, html) {
+    var tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    var next = tmp.firstElementChild;
+    if (!next) {
+      throw new Error('Could not determine replacement element');
+    }
+    target.replaceWith(next);
+    return next;
+  }
+  function scrollToElement(element) {
+    if (!element) {
+      return;
+    }
+    try {
+      element.scrollIntoView({behavior:'smooth', block:'start', inline:'nearest'});
+      return;
+    } catch (e) {}
+    if (!('scrollBehavior' in document.documentElement.style)) {
+      var top = element.getBoundingClientRect().top + (window.pageYOffset || document.documentElement.scrollTop || 0);
+      window.scrollTo(0, top);
+    }
+  }
+  function requestReload(target, page) {
+    var attr = target.getAttribute('data-ajax-reload-element');
+    var token = getRequestToken(target);
+    var data = new FormData();
+    data.append('ajax_reload_element', attr);
+    if (token) {
+      data.append('REQUEST_TOKEN', token);
+    }
+    return fetch(page, {
+      method:'POST',
+      credentials:'same-origin',
+      headers:{
+        'X-Requested-With':'XMLHttpRequest',
+        'Accept':'application/json'
+      },
+      body:data
+    })
+      .then(function(response){ return response.json(); })
+      .then(function(result){
+        if (!result || result.status !== 'ok' || !result.html) {
+          throw new Error('Reload failed');
+        }
+        return result.html;
+      });
+  }
+  function onClick(e) {
+    var link = e.target.closest('.pagination a, .mod_newscategories a, .newscategories a');
+    if (!link) return;
+    if (closest(link, '[data-module="dvc-pagination-reload"]')) return;
+    var targets = getReloadTargets(link);
+    if (!targets.length) return;
+    var rawHref = link.getAttribute('href');
+    if (!rawHref || rawHref.charAt(0) === '#') return;
+    e.preventDefault();
+    var url;
+    try {
+      url = new URL(rawHref, window.location.href);
+    } catch (err) {
+      location.href = link.href;
+      return;
+    }
+    var page = url.pathname + (url.search || '');
+    Promise.all(targets.map(function(target){
+      return requestReload(target, page).then(function(html){
+        return {target: target, html: html};
+      });
+    }))
+      .then(function(results){
+        var firstReplacement = null;
+        results.forEach(function(result){
+          var replacement = replaceTarget(result.target, result.html);
+          if (!firstReplacement) {
+            firstReplacement = replacement;
+          }
+        });
+        try {
+          history.pushState(null, '', url.pathname + (url.search || ''));
+        } catch (err) {}
+        scrollToElement(firstReplacement);
+      })
+      .catch(function(){ location.href = link.href; });
+  }
+  document.addEventListener('click', onClick);
+})();
+</script>
