@@ -1,11 +1,28 @@
 <script>
 // Async reload support for Contao news lists and Codefog news categories.
 (function(){
+  var categoryModuleSelector = '[class~="mod_newscategories"], [class*="mod_newscategories_"]';
+  var newsModuleSelector = '.mod_newslist[data-ajax-reload-element], .mod_newsarchive[data-ajax-reload-element]';
+  var categoryLinkSelector = '.pagination a, ' + categoryModuleSelector + ' a, .newscategories a, .active-categories a, .inactive-categories a, .reset-link a';
+
   function closest(el, selector) { return el && el.closest ? el.closest(selector) : null; }
   function unique(elements) {
     return elements.filter(function (element, index, all) {
       return element && all.indexOf(element) === index;
     });
+  }
+  function getModuleType(element) {
+    if (!element || !element.classList) {
+      return '';
+    }
+    var classNames = Array.prototype.slice.call(element.classList);
+    var match = classNames.find(function(className) {
+      return /^mod_newscategories(?:_|$)/.test(className);
+    });
+    return match || '';
+  }
+  function isCategoryModule(element) {
+    return '' !== getModuleType(element);
   }
   function getRequestToken(element) {
     if (!element) {
@@ -21,24 +38,39 @@
   function findRelatedNewsModule(categoryModule) {
     var scope = categoryModule;
     while (scope) {
-      var newsModule = scope.querySelector ? scope.querySelector('.mod_newslist[data-ajax-reload-element]') : null;
-      if (newsModule && newsModule !== categoryModule) {
-        return newsModule;
+      if (scope.querySelectorAll) {
+        var newsModules = Array.prototype.slice.call(scope.querySelectorAll(newsModuleSelector)).filter(function(newsModule){
+          return newsModule !== categoryModule;
+        });
+
+        if (newsModules.length) {
+          return newsModules[0];
+        }
       }
       scope = scope.parentElement;
     }
-    return null;
+
+    var pageNewsModules = Array.prototype.slice.call(document.querySelectorAll(newsModuleSelector));
+    return pageNewsModules.length ? pageNewsModules[0] : null;
+  }
+  function getCategoryModule(element) {
+    if (!element) {
+      return null;
+    }
+
+    var candidate = closest(element, categoryModuleSelector);
+    return isCategoryModule(candidate) ? candidate : null;
   }
   function getReloadTargets(link) {
-    var categoryModule = closest(link, '.mod_newscategories');
+    var categoryModule = getCategoryModule(link);
     if (categoryModule) {
       return unique([
         findRelatedNewsModule(categoryModule),
-        closest(link, '.mod_newscategories[data-ajax-reload-element]')
+        categoryModule.matches('[data-ajax-reload-element]') ? categoryModule : null
       ]);
     }
     return unique([
-      closest(link, '.mod_newslist[data-ajax-reload-element]'),
+      closest(link, newsModuleSelector),
       closest(link, '[data-ajax-reload-element]')
     ]);
   }
@@ -90,20 +122,12 @@
         return result.html;
       });
   }
-  function onClick(e) {
-    var link = e.target.closest('.pagination a, .mod_newscategories a, .newscategories a');
-    if (!link) return;
-    if (closest(link, '[data-module="dvc-pagination-reload"]')) return;
-    var targets = getReloadTargets(link);
-    if (!targets.length) return;
-    var rawHref = link.getAttribute('href');
-    if (!rawHref || rawHref.charAt(0) === '#') return;
-    e.preventDefault();
+  function navigate(targets, rawHref, fallbackHref) {
     var url;
     try {
       url = new URL(rawHref, window.location.href);
     } catch (err) {
-      location.href = link.href;
+      location.href = fallbackHref;
       return;
     }
     var page = url.pathname + (url.search || '');
@@ -125,8 +149,36 @@
         } catch (err) {}
         scrollToElement(firstReplacement);
       })
-      .catch(function(){ location.href = link.href; });
+      .catch(function(){ location.href = fallbackHref; });
+  }
+  function onClick(e) {
+    var link = e.target.closest(categoryLinkSelector);
+    if (!link) return;
+    if (closest(link, '[data-module="dvc-pagination-reload"]')) return;
+    var targets = getReloadTargets(link);
+    if (!targets.length) return;
+    var rawHref = link.getAttribute('href');
+    if (!rawHref || rawHref.charAt(0) === '#') return;
+    e.preventDefault();
+    navigate(targets, rawHref, link.href);
+  }
+  function onChange(e) {
+    var select = e.target.closest('.select-news-filter__select');
+    if (!select) return;
+    if (closest(select, '[data-module="dvc-pagination-reload"]')) return;
+    var categoryModule = getCategoryModule(select);
+    if (!categoryModule) return;
+    var rawHref = select.value;
+    if (!rawHref) return;
+    var targets = unique([
+      findRelatedNewsModule(categoryModule),
+      categoryModule.matches('[data-ajax-reload-element]') ? categoryModule : null
+    ]);
+    if (!targets.length) return;
+    e.preventDefault();
+    navigate(targets, rawHref, rawHref);
   }
   document.addEventListener('click', onClick);
+  document.addEventListener('change', onChange);
 })();
 </script>
