@@ -1,218 +1,218 @@
 <?php
 
-/**
- * This file is part of richardhj/contao-ajax_reload_element.
- *
- * Copyright (c) 2016-2022 Richard Henkenjohann
- *
- * @package   richardhj/contao-ajax_reload_element
- * @author    Richard Henkenjohann <richardhenkenjohann@googlemail.com>
- * @copyright 2016-2022 Richard Henkenjohann
- * @license   https://github.com/richardhj/contao-ajax_reload_element/blob/master/LICENSE LGPL-3.0
- */
+declare(strict_types=1);
 
 namespace Richardhj\ContaoAjaxReloadElementBundle\EventListener;
 
 use Contao\ArticleModel;
 use Contao\ContentModel;
 use Contao\Controller as ContaoController;
+use Contao\CoreBundle\Csrf\ContaoCsrfTokenManager;
+use Contao\CoreBundle\DependencyInjection\Attribute\AsHook;
 use Contao\CoreBundle\Image\PictureFactoryInterface;
+use Contao\CoreBundle\InsertTag\InsertTagParser;
 use Contao\Environment;
 use Contao\FrontendTemplate;
-use Contao\StringUtil;
-use Contao\Input;
+use Contao\LayoutModel;
 use Contao\Model;
 use Contao\ModuleModel;
+use Contao\PageModel;
+use Contao\StringUtil;
 use Contao\Template;
-use Contao\System;
-use ContaoCommunityAlliance\UrlBuilder\UrlBuilder;
 use ReflectionClass;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\RequestStack;
 
-
-/**
- * Class AjaxReloadElement
- */
+#[AsHook('parseTemplate')]
+#[AsHook('getPageLayout', method: 'onGetPageLayout')]
 class AjaxReloadElementListener
 {
     private static bool $jsInjected = false;
 
-    const TYPE_MODULE  = 'mod';
-    const TYPE_CONTENT = 'ce';
-    const TYPE_ARTICLE = 'art';
+    public const TYPE_MODULE = 'mod';
+    public const TYPE_CONTENT = 'ce';
+    public const TYPE_ARTICLE = 'art';
 
-    const ERROR_ELEMENT_NOT_FOUND        = 1;
-    const ERROR_ELEMENT_AJAX_NOT_ALLOWED = 2;
-    const ERROR_ELEMENT_TYPE_UNKNOWN     = 3;
+    public const ERROR_ELEMENT_NOT_FOUND = 1;
+    public const ERROR_ELEMENT_AJAX_NOT_ALLOWED = 2;
+    public const ERROR_ELEMENT_TYPE_UNKNOWN = 3;
 
-
-    /**
-     * @var PictureFactoryInterface
-     */
-    private $pictureFactory;
-
-
-    public function __construct(PictureFactoryInterface $pictureFactory)
-    {
-        $this->pictureFactory = $pictureFactory; 
+    public function __construct(
+        private readonly PictureFactoryInterface $pictureFactory,
+        private readonly RequestStack $requestStack,
+        private readonly ContaoCsrfTokenManager $csrfTokenManager,
+        private readonly InsertTagParser $insertTagParser,
+    ) {
     }
 
-
-    /**
-     * Add the html attribute to allowed elements
-     *
-     * @param Template $template
-     */
-    public function onParseTemplate($template)
+    public function onParseTemplate(Template $template): void
     {
-        if (!($template instanceof FrontendTemplate) || !$template->allowAjaxReload) {
+        if (!($template instanceof FrontendTemplate) || !(bool) $template->allowAjaxReload) {
             return;
         }
 
-        // Determine whether we have a module, a content element or an article by the vars given at this point
-        $type = ('article' === $template->type)
-            ? self::TYPE_ARTICLE
-            : (\in_array($template->ptable, ['tl_article', 'tl_news', 'tl_calendar_events'], true) ? self::TYPE_CONTENT : self::TYPE_MODULE);
-
-        // cssID is parsed in all common templates
-        // Use cssID for our attribute
-        $token = System::getContainer()->get('contao.csrf.token_manager')->getDefaultTokenValue();
-        $template->cssID .= sprintf(
+        $template->cssID = (string) $template->cssID . sprintf(
             ' data-ajax-reload-element="%s::%u"%s data-ajax-reload-token="%s"',
-            $type,
-            $template->id,
+            $this->determineTemplateType($template),
+            (int) $template->id,
             $template->ajaxReloadFormSubmit ? ' data-ajax-reload-form-submit=""' : '',
-            htmlspecialchars($token, ENT_QUOTES)
+            htmlspecialchars($this->csrfTokenManager->getDefaultTokenValue(), ENT_QUOTES)
         );
 
-        // Inject the pagination script once per page if at least one element allows AJAX reload
         if (!self::$jsInjected) {
-            $tpl = new FrontendTemplate('j_ajax_reload_pagination');
-            $GLOBALS['TL_BODY'][] = $tpl->parse();
+            $template = new FrontendTemplate('j_ajax_reload_pagination');
+            $GLOBALS['TL_BODY'][] = $template->parse();
             self::$jsInjected = true;
         }
     }
 
-    /**
-     * We check for an ajax request on the getPageLayout hook, which is one of the first hooks being called. If so, and
-     * the ajax request is directed to us, we send the generated module/content element as a JSON response.
-     *
-     * @internal param PageModel $page
-     * @internal param LayoutModel $layout
-     * @internal param PageRegular $pageHandler
-     */
-    public function onGetPageLayout($page, $layout)
+    public function onGetPageLayout(PageModel $page, LayoutModel $layout): void
     {
-        if (false === Environment::get('isAjaxRequest')
-            || !(null !== ($paramElement = Input::get('ajax_reload_element'))
-                 || null !== ($paramElement = Input::post('ajax_reload_element')))
-        ) {
+        $request = $this->requestStack->getCurrentRequest();
+
+        if (null === $request || !$request->isXmlHttpRequest()) {
             return;
         }
 
-        $element       = null;
-        $elementParser = [];
-        $data          = [];
-        list ($elementType, $elementId) = StringUtil::trimsplit('::', $paramElement);
+        $paramElement = $this->getRequestedElement($request);
 
-        // Remove the get parameter from the url
-        $requestUrl = UrlBuilder::fromUrl('/'.Environment::get('request'));
-        $requestUrl->unsetQueryParameter('ajax_reload_element');
-        Environment::set('request', ltrim($requestUrl->getUrl(), '/'));
-
-        // Unset the get parameter (as it manipulates MetaModels filter url)
-        Input::setGet('ajax_reload_element', null);
-
-        // Support generic ?page=2 as fallback for Contao's element-specific pagination (e.g. page_n<ID>)
-        $genericPage = Input::get('page');
-        if (null !== $genericPage) {
-            $pageParamName = null;
-            switch ($elementType) {
-                case self::TYPE_MODULE:
-                    $pageParamName = 'page_n' . $elementId;
-                    break;
-                case self::TYPE_CONTENT:
-                    $pageParamName = 'page_c' . $elementId;
-                    break;
-                case self::TYPE_ARTICLE:
-                    $pageParamName = 'page_a' . $elementId;
-                    break;
-            }
-            if ($pageParamName && null === Input::get($pageParamName)) {
-                Input::setGet($pageParamName, $genericPage);
-            }
+        if (null === $paramElement) {
+            return;
         }
 
-        switch ($elementType) {
-            case self::TYPE_MODULE:
-                $element       = ModuleModel::findByPk($elementId);
-                $elementParser = [ContaoController::class, 'getFrontendModule'];
-                break;
+        [$elementType, $elementId] = array_pad(StringUtil::trimsplit('::', $paramElement), 2, null);
 
-            case self::TYPE_CONTENT:
-                $element       = ContentModel::findByPk($elementId);
-                $elementParser = [ContaoController::class, 'getContentElement'];
-                break;
-
-            case self::TYPE_ARTICLE:
-                $element       = ArticleModel::findByPk($elementId);
-                $elementParser = [ContaoController::class, 'getArticle'];
-                break;
-
-            default:
-                $this->terminateWithError(self::ERROR_ELEMENT_TYPE_UNKNOWN);
-                break;
+        if (null === $elementType || null === $elementId || !is_numeric($elementId)) {
+            $this->terminateWithError(self::ERROR_ELEMENT_TYPE_UNKNOWN);
         }
+
+        $elementId = (int) $elementId;
+        $this->prepareRequestForReload($request, $elementType, $elementId);
+
+        [$element, $elementParser] = match ($elementType) {
+            self::TYPE_MODULE => [ModuleModel::findByPk($elementId), [ContaoController::class, 'getFrontendModule']],
+            self::TYPE_CONTENT => [ContentModel::findByPk($elementId), [ContaoController::class, 'getContentElement']],
+            self::TYPE_ARTICLE => [ArticleModel::findByPk($elementId), [ContaoController::class, 'getArticle']],
+            default => $this->terminateWithError(self::ERROR_ELEMENT_TYPE_UNKNOWN),
+        };
 
         $this->ensureModelIsNotNull($element, $paramElement);
         $this->ensureAjaxReloadIsAllowed($element);
 
-        // Remove login error from session as it is not done in the module class anymore (see contao/core#7824)
         unset($_SESSION['LOGIN_ERROR']);
 
-        // Set theme and layout related information in the page object (see #10)
         $theme = $layout->getRelated('pid');
-        if ($theme && isset($theme->defaultImageDensities) && $theme->defaultImageDensities !== null && $theme->defaultImageDensities !== '') {
+
+        if ($theme && isset($theme->defaultImageDensities) && '' !== (string) $theme->defaultImageDensities) {
             $this->pictureFactory->setDefaultDensities($theme->defaultImageDensities);
         }
+
         $page->layoutId = $layout->id;
         $page->template = $layout->template ?: 'fe_page';
+
         if ($theme && isset($theme->templates) && $theme->templates) {
             $page->templateGroup = $theme->templates;
         }
-        list($strFormat, $strVariant) = explode('_', $layout->doctype) + array(null, null);
-        $page->outputFormat = $strFormat;
-        $page->outputVariant = $strVariant;
 
-        // Parse the element
-        $return = $elementParser($element);
+        [$format, $variant] = array_pad(explode('_', (string) $layout->doctype, 2), 2, null);
+        $page->outputFormat = $format;
+        $page->outputVariant = $variant;
 
-        // Replace insert tags using the parser (Contao 5)
-        $parser = System::getContainer()->get('contao.insert_tag.parser');
-        $return = $parser->replace($return);
+        $html = $elementParser($element);
+        $html = $this->insertTagParser->replace($html);
+        $html = str_replace(
+            ['{{request_token}}', '[{]', '[}]'],
+            [$this->csrfTokenManager->getDefaultTokenValue(), '{{', '}}'],
+            $html
+        );
 
-        // Ensure request token is replaced in case it remained
-        $token = System::getContainer()->get('contao.csrf.token_manager')->getDefaultTokenValue();
-        $return = str_replace(['{{request_token}}', '[{]', '[}]'], [$token, '{{', '}}'], $return);
-
-        // Replace dynamic script tags
         if (method_exists(ContaoController::class, 'replaceDynamicScriptTags')) {
-            $return = ContaoController::replaceDynamicScriptTags($return); // see contao/core#4203
+            $html = ContaoController::replaceDynamicScriptTags($html);
         }
 
-        $data['status'] = 'ok';
-        $data['html']   = $return;
-
-        $response = new JsonResponse($data);
+        $response = new JsonResponse([
+            'status' => 'ok',
+            'html' => $html,
+        ]);
         $response->send();
         exit;
     }
 
-    /**
-     * @param Model|null $model
-     * @param string     $modelIdentifier
-     */
-    private function ensureModelIsNotNull($model, $modelIdentifier)
+    private function determineTemplateType(FrontendTemplate $template): string
+    {
+        if ('article' === (string) $template->type) {
+            return self::TYPE_ARTICLE;
+        }
+
+        return \in_array((string) ($template->ptable ?? ''), ['tl_article', 'tl_news', 'tl_calendar_events'], true)
+            ? self::TYPE_CONTENT
+            : self::TYPE_MODULE;
+    }
+
+    private function getRequestedElement(Request $request): ?string
+    {
+        $element = $request->query->all()['ajax_reload_element'] ?? null;
+
+        if (\is_string($element) && '' !== $element) {
+            return $element;
+        }
+
+        $element = $request->request->all()['ajax_reload_element'] ?? null;
+
+        return \is_string($element) && '' !== $element ? $element : null;
+    }
+
+    private function prepareRequestForReload(Request $request, string $elementType, int $elementId): void
+    {
+        $queryParameters = $request->query->all();
+        unset($queryParameters['ajax_reload_element']);
+        $request->query->replace($queryParameters);
+
+        $requestParameters = $request->request->all();
+        unset($requestParameters['ajax_reload_element']);
+        $request->request->replace($requestParameters);
+
+        $inputAttributes = $request->attributes->get('_contao_input', []);
+        $setGet = $inputAttributes['setGet'] ?? [];
+        $setGet['ajax_reload_element'] = null;
+
+        $pageParameterName = $this->getPageParameterName($elementType, $elementId);
+        $genericPage = $queryParameters['page'] ?? null;
+
+        if (
+            null !== $genericPage
+            && null !== $pageParameterName
+            && !array_key_exists($pageParameterName, $queryParameters)
+        ) {
+            $setGet[$pageParameterName] = $genericPage;
+        }
+
+        $inputAttributes['setGet'] = $setGet;
+        $request->attributes->set('_contao_input', $inputAttributes);
+
+        Environment::set('request', $this->buildRelativeRequest($request, $queryParameters));
+    }
+
+    private function getPageParameterName(string $elementType, int $elementId): ?string
+    {
+        return match ($elementType) {
+            self::TYPE_MODULE => 'page_n'.$elementId,
+            self::TYPE_CONTENT => 'page_c'.$elementId,
+            self::TYPE_ARTICLE => 'page_a'.$elementId,
+            default => null,
+        };
+    }
+
+    private function buildRelativeRequest(Request $request, array $queryParameters): string
+    {
+        $relativeRequest = ltrim($request->getPathInfo(), '/');
+        $queryString = http_build_query($queryParameters);
+
+        return '' === $queryString ? $relativeRequest : $relativeRequest.'?'.$queryString;
+    }
+
+    private function ensureModelIsNotNull(Model|null $model, string $modelIdentifier): void
     {
         if (null !== $model) {
             return;
@@ -221,33 +221,25 @@ class AjaxReloadElementListener
         $this->terminateWithError(self::ERROR_ELEMENT_NOT_FOUND, $modelIdentifier);
     }
 
-    /**
-     * @param Model $model
-     */
-    private function ensureAjaxReloadIsAllowed(Model $model)
+    private function ensureAjaxReloadIsAllowed(Model $model): void
     {
-        if ($model->allowAjaxReload) {
+        if ((bool) $model->allowAjaxReload) {
             return;
         }
 
-        // Get element class like "ArticleModel" and cut off "Model"
         $elementType = (new ReflectionClass($model))->getShortName();
         $elementType = substr($elementType, 0, -5);
 
         $this->terminateWithError(self::ERROR_ELEMENT_AJAX_NOT_ALLOWED, [$elementType, $model->id]);
     }
 
-    /**
-     * @param int          $errorCode
-     * @param array|string $args
-     */
-    private function terminateWithError($errorCode, $args = [])
+    private function terminateWithError(int $errorCode, array|string $args = []): never
     {
-        $data['status']     = 'error';
-        $data['error_code'] = $errorCode;
-        $data['error']      = vsprintf($GLOBALS['TL_LANG']['ERR']['ajaxReloadElement'][$errorCode], (array)$args);
-
-        $response = new JsonResponse($data);
+        $response = new JsonResponse([
+            'status' => 'error',
+            'error_code' => $errorCode,
+            'error' => vsprintf($GLOBALS['TL_LANG']['ERR']['ajaxReloadElement'][$errorCode], (array) $args),
+        ]);
         $response->send();
         exit;
     }
