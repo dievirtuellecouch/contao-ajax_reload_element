@@ -4,6 +4,8 @@
   var categoryModuleSelector = '[class~="mod_newscategories"], [class*="mod_newscategories_"]';
   var newsModuleSelector = '.mod_newslist[data-ajax-reload-element], .mod_newsarchive[data-ajax-reload-element]';
   var categoryLinkSelector = '.pagination a, ' + categoryModuleSelector + ' a, .newscategories a, .active-categories a, .inactive-categories a, .reset-link a';
+  var customCatalogFilterSelector = '.mod_customcatalogfilter';
+  var customCatalogListSelector = '.mod_customcataloglist[data-ajax-reload-element], .mod_customcatalog[data-ajax-reload-element]';
 
   function closest(el, selector) { return el && el.closest ? el.closest(selector) : null; }
   function unique(elements) {
@@ -35,6 +37,25 @@
     var tokenElement = element.querySelector('[data-request-token]');
     return tokenElement ? (tokenElement.getAttribute('data-request-token') || '') : '';
   }
+  function getSiblingMatch(element, selector, direction) {
+    var sibling = element;
+    while (sibling) {
+      sibling = sibling[direction];
+      if (!sibling) {
+        return null;
+      }
+      if (sibling.matches && sibling.matches(selector)) {
+        return sibling;
+      }
+      if (sibling.querySelector) {
+        var nestedMatch = sibling.querySelector(selector);
+        if (nestedMatch) {
+          return nestedMatch;
+        }
+      }
+    }
+    return null;
+  }
   function findRelatedNewsModule(categoryModule) {
     var scope = categoryModule;
     while (scope) {
@@ -52,6 +73,31 @@
 
     var pageNewsModules = Array.prototype.slice.call(document.querySelectorAll(newsModuleSelector));
     return pageNewsModules.length ? pageNewsModules[0] : null;
+  }
+  function findRelatedCustomCatalogModule(filterModule) {
+    var siblingMatch = getSiblingMatch(filterModule, customCatalogListSelector, 'nextElementSibling')
+      || getSiblingMatch(filterModule, customCatalogListSelector, 'previousElementSibling');
+
+    if (siblingMatch) {
+      return siblingMatch;
+    }
+
+    var scope = filterModule;
+    while (scope) {
+      if (scope.querySelectorAll) {
+        var listModules = Array.prototype.slice.call(scope.querySelectorAll(customCatalogListSelector)).filter(function(listModule){
+          return listModule !== filterModule;
+        });
+
+        if (listModules.length) {
+          return listModules[0];
+        }
+      }
+      scope = scope.parentElement;
+    }
+
+    var pageListModules = Array.prototype.slice.call(document.querySelectorAll(customCatalogListSelector));
+    return pageListModules.length ? pageListModules[0] : null;
   }
   function getCategoryModule(element) {
     if (!element) {
@@ -73,6 +119,67 @@
       closest(link, newsModuleSelector),
       closest(link, '[data-ajax-reload-element]')
     ]);
+  }
+  function getCustomCatalogFilterModule(element) {
+    return element ? closest(element, customCatalogFilterSelector) : null;
+  }
+  function cloneFormData(form, submitter) {
+    var data = new FormData(form);
+
+    if (
+      submitter
+      && submitter.name
+      && !data.has(submitter.name)
+      && ('button' === (submitter.tagName || '').toLowerCase() || 'submit' === (submitter.type || '').toLowerCase())
+    ) {
+      data.append(submitter.name, submitter.value || '');
+    }
+
+    return data;
+  }
+  function appendFormData(target, source) {
+    if (!source || !source.forEach) {
+      return;
+    }
+
+    source.forEach(function(value, key){
+      target.append(key, value);
+    });
+  }
+  function buildFormUrl(form, formData) {
+    var rawAction = form.getAttribute('action') || window.location.href;
+    var url = new URL(rawAction, window.location.href);
+    var method = (form.getAttribute('method') || 'get').toLowerCase();
+
+    if ('get' !== method) {
+      return url;
+    }
+
+    url.search = '';
+
+    formData.forEach(function(value, key){
+      if (!key || 'REQUEST_TOKEN' === key || 'FORM_SUBMIT' === key) {
+        return;
+      }
+      if (/_clear(all)?$/.test(key)) {
+        return;
+      }
+      if ('' === value || null === value) {
+        return;
+      }
+      url.searchParams.append(key, value);
+    });
+
+    return url;
+  }
+  function isCustomCatalogResetSubmit(submitter) {
+    if (!submitter) {
+      return false;
+    }
+
+    var name = submitter.getAttribute ? (submitter.getAttribute('name') || '') : '';
+    return /_clear(all)?$/.test(name)
+      || (submitter.classList && (submitter.classList.contains('clear_filters') || submitter.classList.contains('clear_all_filters')));
   }
   function replaceTarget(target, html) {
     var tmp = document.createElement('div');
@@ -97,12 +204,13 @@
       window.scrollTo(0, top);
     }
   }
-  function requestReload(target, page) {
+  function requestReload(target, page, payload) {
     var attr = target.getAttribute('data-ajax-reload-element');
     var token = getRequestToken(target);
     var data = new FormData();
+    appendFormData(data, payload);
     data.append('ajax_reload_element', attr);
-    if (token) {
+    if (token && !data.get('REQUEST_TOKEN')) {
       data.append('REQUEST_TOKEN', token);
     }
     return fetch(page, {
@@ -122,7 +230,7 @@
         return result.html;
       });
   }
-  function navigate(targets, rawHref, fallbackHref) {
+  function navigate(targets, rawHref, fallbackHref, payload) {
     var url;
     try {
       url = new URL(rawHref, window.location.href);
@@ -132,7 +240,7 @@
     }
     var page = url.pathname + (url.search || '');
     Promise.all(targets.map(function(target){
-      return requestReload(target, page).then(function(html){
+      return requestReload(target, page, payload).then(function(html){
         return {target: target, html: html};
       });
     }))
@@ -151,6 +259,34 @@
       })
       .catch(function(){ location.href = fallbackHref; });
   }
+  function navigateCustomCatalog(form, submitter) {
+    var filterModule = getCustomCatalogFilterModule(form);
+    if (!filterModule) {
+      return false;
+    }
+
+    var formData = cloneFormData(form, submitter);
+    var method = (form.getAttribute('method') || 'get').toLowerCase();
+    var targets = unique([
+      findRelatedCustomCatalogModule(filterModule),
+      'get' === method && filterModule.matches('[data-ajax-reload-element]') ? filterModule : null
+    ]);
+
+    if (!targets.length) {
+      return false;
+    }
+
+    var url;
+    try {
+      url = buildFormUrl(form, formData);
+    } catch (err) {
+      location.href = form.getAttribute('action') || window.location.href;
+      return true;
+    }
+
+    navigate(targets, url.href, url.href, formData);
+    return true;
+  }
   function onClick(e) {
     var link = e.target.closest(categoryLinkSelector);
     if (!link) return;
@@ -164,21 +300,64 @@
   }
   function onChange(e) {
     var select = e.target.closest('.select-news-filter__select');
-    if (!select) return;
-    if (closest(select, '[data-module="dvc-pagination-reload"]')) return;
-    var categoryModule = getCategoryModule(select);
-    if (!categoryModule) return;
-    var rawHref = select.value;
-    if (!rawHref) return;
-    var targets = unique([
-      findRelatedNewsModule(categoryModule),
-      categoryModule.matches('[data-ajax-reload-element]') ? categoryModule : null
-    ]);
-    if (!targets.length) return;
+    if (select) {
+      if (closest(select, '[data-module="dvc-pagination-reload"]')) return;
+      var categoryModule = getCategoryModule(select);
+      if (!categoryModule) return;
+      var rawHref = select.value;
+      if (!rawHref) return;
+      var targets = unique([
+        findRelatedNewsModule(categoryModule),
+        categoryModule.matches('[data-ajax-reload-element]') ? categoryModule : null
+      ]);
+      if (!targets.length) return;
+      e.preventDefault();
+      navigate(targets, rawHref, rawHref);
+      return;
+    }
+
+    var field = e.target;
+    var customCatalogForm = field && field.form ? getCustomCatalogFilterModule(field.form) ? field.form : null : null;
+
+    if (!customCatalogForm) {
+      return;
+    }
+
+    if (customCatalogForm.getAttribute('onchange')) {
+      return;
+    }
+
+    if (customCatalogForm.querySelector('button[type="submit"], input[type="submit"], input[type="image"]')) {
+      return;
+    }
+
+    var type = (field.getAttribute('type') || '').toLowerCase();
+    if ('SELECT' !== field.tagName && 'radio' !== type && 'checkbox' !== type) {
+      return;
+    }
+
     e.preventDefault();
-    navigate(targets, rawHref, rawHref);
+    if (!navigateCustomCatalog(customCatalogForm, field)) {
+      customCatalogForm.submit();
+    }
+  }
+  function onSubmit(e) {
+    var form = e.target.closest(customCatalogFilterSelector + ' form');
+    if (!form) return;
+
+    var submitter = e.submitter || document.activeElement;
+    if (isCustomCatalogResetSubmit(submitter)) {
+      return;
+    }
+
+    if (!navigateCustomCatalog(form, submitter)) {
+      return;
+    }
+
+    e.preventDefault();
   }
   document.addEventListener('click', onClick);
   document.addEventListener('change', onChange);
+  document.addEventListener('submit', onSubmit);
 })();
 </script>
