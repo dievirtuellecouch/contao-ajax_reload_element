@@ -230,7 +230,7 @@
         return result.html;
       });
   }
-  function navigate(targets, rawHref, fallbackHref, payload) {
+  function navigate(targets, rawHref, fallbackHref, payload, scrollTarget) {
     var url;
     try {
       url = new URL(rawHref, window.location.href);
@@ -246,16 +246,20 @@
     }))
       .then(function(results){
         var firstReplacement = null;
+        var resolvedScrollTarget = scrollTarget || null;
         results.forEach(function(result){
           var replacement = replaceTarget(result.target, result.html);
           if (!firstReplacement) {
             firstReplacement = replacement;
           }
+          if (scrollTarget && result.target === scrollTarget) {
+            resolvedScrollTarget = replacement;
+          }
         });
         try {
           history.pushState(null, '', url.pathname + (url.search || ''));
         } catch (err) {}
-        scrollToElement(firstReplacement);
+        scrollToElement(resolvedScrollTarget || firstReplacement);
       })
       .catch(function(){ location.href = fallbackHref; });
   }
@@ -284,19 +288,20 @@
       return true;
     }
 
-    navigate(targets, url.href, url.href, formData);
+    navigate(targets, url.href, url.href, formData, filterModule);
     return true;
   }
   function onClick(e) {
     var link = e.target.closest(categoryLinkSelector);
     if (!link) return;
     if (closest(link, '[data-module="dvc-pagination-reload"]')) return;
+    var categoryModule = getCategoryModule(link);
     var targets = getReloadTargets(link);
     if (!targets.length) return;
     var rawHref = link.getAttribute('href');
     if (!rawHref || rawHref.charAt(0) === '#') return;
     e.preventDefault();
-    navigate(targets, rawHref, link.href);
+    navigate(targets, rawHref, link.href, null, categoryModule);
   }
   function onChange(e) {
     var select = e.target.closest('.select-news-filter__select');
@@ -312,7 +317,7 @@
       ]);
       if (!targets.length) return;
       e.preventDefault();
-      navigate(targets, rawHref, rawHref);
+      navigate(targets, rawHref, rawHref, null, categoryModule);
       return;
     }
 
