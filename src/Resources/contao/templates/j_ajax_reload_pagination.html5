@@ -1,368 +1,96 @@
 <script>
-// Async reload support for Contao news lists and Codefog news categories.
-(function(){
-  var categoryModuleSelector = '[class~="mod_newscategories"], [class*="mod_newscategories_"]';
-  var newsModuleSelector = '.mod_newslist[data-ajax-reload-element], .mod_newsarchive[data-ajax-reload-element]';
-  var categoryLinkSelector = '.pagination a, ' + categoryModuleSelector + ' a, .newscategories a, .active-categories a, .inactive-categories a, .reset-link a';
-  var customCatalogFilterSelector = '.mod_customcatalogfilter';
-  var customCatalogListSelector = '.mod_customcataloglist[data-ajax-reload-element], .mod_customcatalog[data-ajax-reload-element]';
+// Async pagination for Contao news lists using dvc ajax_reload_element.
+(function () {
+  function onClick(event) {
+    var link = event.target.closest('.pagination a, .newscategories a');
 
-  function closest(el, selector) { return el && el.closest ? el.closest(selector) : null; }
-  function unique(elements) {
-    return elements.filter(function (element, index, all) {
-      return element && all.indexOf(element) === index;
-    });
-  }
-  function getModuleType(element) {
-    if (!element || !element.classList) {
-      return '';
-    }
-    var classNames = Array.prototype.slice.call(element.classList);
-    var match = classNames.find(function(className) {
-      return /^mod_newscategories(?:_|$)/.test(className);
-    });
-    return match || '';
-  }
-  function isCategoryModule(element) {
-    return '' !== getModuleType(element);
-  }
-  function getRequestToken(element) {
-    if (!element) {
-      return '';
-    }
-    var token = element.getAttribute('data-ajax-reload-token');
-    if (token) {
-      return token;
-    }
-    var tokenElement = element.querySelector('[data-request-token]');
-    return tokenElement ? (tokenElement.getAttribute('data-request-token') || '') : '';
-  }
-  function getSiblingMatch(element, selector, direction) {
-    var sibling = element;
-    while (sibling) {
-      sibling = sibling[direction];
-      if (!sibling) {
-        return null;
-      }
-      if (sibling.matches && sibling.matches(selector)) {
-        return sibling;
-      }
-      if (sibling.querySelector) {
-        var nestedMatch = sibling.querySelector(selector);
-        if (nestedMatch) {
-          return nestedMatch;
-        }
-      }
-    }
-    return null;
-  }
-  function findRelatedNewsModule(categoryModule) {
-    var scope = categoryModule;
-    while (scope) {
-      if (scope.querySelectorAll) {
-        var newsModules = Array.prototype.slice.call(scope.querySelectorAll(newsModuleSelector)).filter(function(newsModule){
-          return newsModule !== categoryModule;
-        });
-
-        if (newsModules.length) {
-          return newsModules[0];
-        }
-      }
-      scope = scope.parentElement;
-    }
-
-    var pageNewsModules = Array.prototype.slice.call(document.querySelectorAll(newsModuleSelector));
-    return pageNewsModules.length ? pageNewsModules[0] : null;
-  }
-  function findRelatedCustomCatalogModule(filterModule) {
-    var siblingMatch = getSiblingMatch(filterModule, customCatalogListSelector, 'nextElementSibling')
-      || getSiblingMatch(filterModule, customCatalogListSelector, 'previousElementSibling');
-
-    if (siblingMatch) {
-      return siblingMatch;
-    }
-
-    var scope = filterModule;
-    while (scope) {
-      if (scope.querySelectorAll) {
-        var listModules = Array.prototype.slice.call(scope.querySelectorAll(customCatalogListSelector)).filter(function(listModule){
-          return listModule !== filterModule;
-        });
-
-        if (listModules.length) {
-          return listModules[0];
-        }
-      }
-      scope = scope.parentElement;
-    }
-
-    var pageListModules = Array.prototype.slice.call(document.querySelectorAll(customCatalogListSelector));
-    return pageListModules.length ? pageListModules[0] : null;
-  }
-  function getCategoryModule(element) {
-    if (!element) {
-      return null;
-    }
-
-    var candidate = closest(element, categoryModuleSelector);
-    return isCategoryModule(candidate) ? candidate : null;
-  }
-  function getReloadTargets(link) {
-    var categoryModule = getCategoryModule(link);
-    if (categoryModule) {
-      return unique([
-        findRelatedNewsModule(categoryModule),
-        categoryModule.matches('[data-ajax-reload-element]') ? categoryModule : null
-      ]);
-    }
-    return unique([
-      closest(link, newsModuleSelector),
-      closest(link, '[data-ajax-reload-element]')
-    ]);
-  }
-  function getCustomCatalogFilterModule(element) {
-    return element ? closest(element, customCatalogFilterSelector) : null;
-  }
-  function cloneFormData(form, submitter) {
-    var data = new FormData(form);
-
-    if (
-      submitter
-      && submitter.name
-      && !data.has(submitter.name)
-      && ('button' === (submitter.tagName || '').toLowerCase() || 'submit' === (submitter.type || '').toLowerCase())
-    ) {
-      data.append(submitter.name, submitter.value || '');
-    }
-
-    return data;
-  }
-  function appendFormData(target, source) {
-    if (!source || !source.forEach) {
+    if (!link) {
       return;
     }
 
-    source.forEach(function(value, key){
-      target.append(key, value);
-    });
-  }
-  function buildFormUrl(form, formData) {
-    var rawAction = form.getAttribute('action') || window.location.href;
-    var url = new URL(rawAction, window.location.href);
-    var method = (form.getAttribute('method') || 'get').toLowerCase();
+    var moduleElement = link.closest('.mod_newslist');
 
-    if ('get' !== method) {
-      return url;
-    }
-
-    url.search = '';
-
-    formData.forEach(function(value, key){
-      if (!key || 'REQUEST_TOKEN' === key || 'FORM_SUBMIT' === key) {
-        return;
-      }
-      if (/_clear(all)?$/.test(key)) {
-        return;
-      }
-      if ('' === value || null === value) {
-        return;
-      }
-      url.searchParams.append(key, value);
-    });
-
-    return url;
-  }
-  function isCustomCatalogResetSubmit(submitter) {
-    if (!submitter) {
-      return false;
-    }
-
-    var name = submitter.getAttribute ? (submitter.getAttribute('name') || '') : '';
-    return /_clear(all)?$/.test(name)
-      || (submitter.classList && (submitter.classList.contains('clear_filters') || submitter.classList.contains('clear_all_filters')));
-  }
-  function replaceTarget(target, html) {
-    var tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    var next = tmp.firstElementChild;
-    if (!next) {
-      throw new Error('Could not determine replacement element');
-    }
-    target.replaceWith(next);
-    return next;
-  }
-  function scrollToElement(element) {
-    if (!element) {
+    if (!moduleElement) {
       return;
     }
-    try {
-      element.scrollIntoView({behavior:'smooth', block:'start', inline:'nearest'});
+
+    var reloadElement = moduleElement.getAttribute('data-ajax-reload-element');
+
+    if (!reloadElement || moduleElement.getAttribute('data-ajax-reload-loading') === '1') {
       return;
-    } catch (e) {}
-    if (!('scrollBehavior' in document.documentElement.style)) {
-      var top = element.getBoundingClientRect().top + (window.pageYOffset || document.documentElement.scrollTop || 0);
-      window.scrollTo(0, top);
     }
-  }
-  function requestReload(target, page, payload) {
-    var attr = target.getAttribute('data-ajax-reload-element');
-    var token = getRequestToken(target);
-    var data = new FormData();
-    appendFormData(data, payload);
-    data.append('ajax_reload_element', attr);
-    if (token && !data.get('REQUEST_TOKEN')) {
-      data.append('REQUEST_TOKEN', token);
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    var url = new URL(link.getAttribute('href'), window.location.href);
+    var requestToken = moduleElement.getAttribute('data-ajax-reload-token');
+    var contentElement = moduleElement.querySelector('.blog-list, .news-list, [data-request-token]');
+    var formData = new FormData();
+
+    if (!requestToken && contentElement) {
+      requestToken = contentElement.getAttribute('data-request-token');
     }
-    return fetch(page, {
-      method:'POST',
-      credentials:'same-origin',
-      headers:{
-        'X-Requested-With':'XMLHttpRequest',
-        'Accept':'application/json'
+
+    formData.append('ajax_reload_element', reloadElement);
+
+    if (requestToken) {
+      formData.append('REQUEST_TOKEN', requestToken);
+    }
+
+    moduleElement.setAttribute('data-ajax-reload-loading', '1');
+
+    fetch(url.pathname + (url.search || ''), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json'
       },
-      body:data
+      body: formData
     })
-      .then(function(response){ return response.json(); })
-      .then(function(result){
-        if (!result || result.status !== 'ok' || !result.html) {
-          throw new Error('Reload failed');
-        }
-        return result.html;
-      });
-  }
-  function navigate(targets, rawHref, fallbackHref, payload, scrollTarget) {
-    var url;
-    try {
-      url = new URL(rawHref, window.location.href);
-    } catch (err) {
-      location.href = fallbackHref;
-      return;
-    }
-    var page = url.pathname + (url.search || '');
-    Promise.all(targets.map(function(target){
-      return requestReload(target, page, payload).then(function(html){
-        return {target: target, html: html};
-      });
-    }))
-      .then(function(results){
-        var firstReplacement = null;
-        var resolvedScrollTarget = scrollTarget || null;
-        results.forEach(function(result){
-          var replacement = replaceTarget(result.target, result.html);
-          if (!firstReplacement) {
-            firstReplacement = replacement;
-          }
-          if (scrollTarget && result.target === scrollTarget) {
-            resolvedScrollTarget = replacement;
-          }
-        });
-        try {
-          history.pushState(null, '', url.pathname + (url.search || ''));
-        } catch (err) {}
-        scrollToElement(resolvedScrollTarget || firstReplacement);
+      .then(function (response) {
+        return response.json();
       })
-      .catch(function(){ location.href = fallbackHref; });
+      .then(function (response) {
+        if (!response || response.status !== 'ok' || !response.html) {
+          location.href = link.href;
+
+          return;
+        }
+
+        var container = document.createElement('div');
+
+        container.innerHTML = response.html;
+
+        var nextModuleElement = container.firstElementChild;
+
+        if (!nextModuleElement) {
+          location.href = link.href;
+
+          return;
+        }
+
+        moduleElement.replaceWith(nextModuleElement);
+
+        if (typeof lightbox !== 'undefined' && typeof lightbox.reload === 'function') {
+          lightbox.reload();
+        }
+
+        try {
+          nextModuleElement.scrollIntoView({behavior: 'smooth', block: 'start', inline: 'nearest'});
+        } catch (error) {
+          nextModuleElement.scrollIntoView();
+        }
+      })
+      .catch(function () {
+        location.href = link.href;
+      })
+      .finally(function () {
+        moduleElement.removeAttribute('data-ajax-reload-loading');
+      });
   }
-  function navigateCustomCatalog(form, submitter) {
-    var filterModule = getCustomCatalogFilterModule(form);
-    if (!filterModule) {
-      return false;
-    }
 
-    var formData = cloneFormData(form, submitter);
-    var method = (form.getAttribute('method') || 'get').toLowerCase();
-    var targets = unique([
-      findRelatedCustomCatalogModule(filterModule),
-      'get' === method && filterModule.matches('[data-ajax-reload-element]') ? filterModule : null
-    ]);
-
-    if (!targets.length) {
-      return false;
-    }
-
-    var url;
-    try {
-      url = buildFormUrl(form, formData);
-    } catch (err) {
-      location.href = form.getAttribute('action') || window.location.href;
-      return true;
-    }
-
-    navigate(targets, url.href, url.href, formData, filterModule);
-    return true;
-  }
-  function onClick(e) {
-    var link = e.target.closest(categoryLinkSelector);
-    if (!link) return;
-    if (closest(link, '[data-module="dvc-pagination-reload"]')) return;
-    var categoryModule = getCategoryModule(link);
-    var targets = getReloadTargets(link);
-    if (!targets.length) return;
-    var rawHref = link.getAttribute('href');
-    if (!rawHref || rawHref.charAt(0) === '#') return;
-    e.preventDefault();
-    navigate(targets, rawHref, link.href, null, categoryModule);
-  }
-  function onChange(e) {
-    var select = e.target.closest('.select-news-filter__select');
-    if (select) {
-      if (closest(select, '[data-module="dvc-pagination-reload"]')) return;
-      var categoryModule = getCategoryModule(select);
-      if (!categoryModule) return;
-      var rawHref = select.value;
-      if (!rawHref) return;
-      var targets = unique([
-        findRelatedNewsModule(categoryModule),
-        categoryModule.matches('[data-ajax-reload-element]') ? categoryModule : null
-      ]);
-      if (!targets.length) return;
-      e.preventDefault();
-      navigate(targets, rawHref, rawHref, null, categoryModule);
-      return;
-    }
-
-    var field = e.target;
-    var customCatalogForm = field && field.form ? getCustomCatalogFilterModule(field.form) ? field.form : null : null;
-
-    if (!customCatalogForm) {
-      return;
-    }
-
-    if (customCatalogForm.getAttribute('onchange')) {
-      return;
-    }
-
-    if (customCatalogForm.querySelector('button[type="submit"], input[type="submit"], input[type="image"]')) {
-      return;
-    }
-
-    var type = (field.getAttribute('type') || '').toLowerCase();
-    if ('SELECT' !== field.tagName && 'radio' !== type && 'checkbox' !== type) {
-      return;
-    }
-
-    e.preventDefault();
-    if (!navigateCustomCatalog(customCatalogForm, field)) {
-      customCatalogForm.submit();
-    }
-  }
-  function onSubmit(e) {
-    var form = e.target.closest(customCatalogFilterSelector + ' form');
-    if (!form) return;
-
-    var submitter = e.submitter || document.activeElement;
-    if (isCustomCatalogResetSubmit(submitter)) {
-      return;
-    }
-
-    if (!navigateCustomCatalog(form, submitter)) {
-      return;
-    }
-
-    e.preventDefault();
-  }
-  document.addEventListener('click', onClick);
-  document.addEventListener('change', onChange);
-  document.addEventListener('submit', onSubmit);
+  document.addEventListener('click', onClick, true);
 })();
 </script>

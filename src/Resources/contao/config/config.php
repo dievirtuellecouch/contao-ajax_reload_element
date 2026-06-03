@@ -11,14 +11,12 @@
  * @license   https://github.com/richardhj/contao-ajax_reload_element/blob/master/LICENSE LGPL-3.0
  */
 
-namespace Richardhj\ContaoAjaxReloadElementBundle;
-
-use Symfony\Component\HttpKernel\Bundle\Bundle;
+use Richardhj\ContaoAjaxReloadElementBundle\EventListener\AjaxReloadElementListener;
 
 /**
- * The Bundle class.
+ * Hooks
+ *
+ * Waiting for Contao 4.5 (see contao/core-bundle#1094) to get rid of this file
  */
-class RichardhjContaoAjaxReloadElementBundle extends Bundle
-{
-
-}
+$GLOBALS['TL_HOOKS']['parseTemplate'][] = [AjaxReloadElementListener::class, 'onParseTemplate'];
+$GLOBALS['TL_HOOKS']['getPageLayout'][] = [AjaxReloadElementListener::class, 'onGetPageLayout'];

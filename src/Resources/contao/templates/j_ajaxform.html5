@@ -1,3 +1,4 @@
+
 <script src="<?= TL_ASSETS_URL ?>bundles/richardhjcontaoajaxreloadelement/jquery.ajax-reload-form.js"></script>
 <script>
     $(function () {
