@@ -1,17 +1,17 @@
 <?php
 
 /**
- * This file is part of richardhj/contao-ajax_reload_element.
+ * This file is part of dvc/contao-ajax_reload_element.
  *
  * Copyright (c) 2016-2022 Richard Henkenjohann
  *
- * @package   richardhj/contao-ajax_reload_element
+ * @package   dvc/contao-ajax_reload_element
  * @author    Richard Henkenjohann <richardhenkenjohann@googlemail.com>
  * @copyright 2016-2022 Richard Henkenjohann
- * @license   https://github.com/richardhj/contao-ajax_reload_element/blob/master/LICENSE LGPL-3.0
+ * @license   https://github.com/dvc/contao-ajax_reload_element/blob/master/LICENSE LGPL-3.0
  */
 
-namespace Richardhj\ContaoAjaxReloadElementBundle\EventListener;
+namespace Dvc\ContaoAjaxReloadElementBundle\EventListener;
 
 use Contao\ArticleModel;
 use Contao\ContentModel;

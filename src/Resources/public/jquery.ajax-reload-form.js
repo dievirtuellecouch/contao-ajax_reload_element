@@ -1,4 +1,4 @@
-/* This file is part of richardhj/contao-ajax_reload_element, (c) 2016-2017 Richard Henkenjohann */
+/* This file is part of dvc/contao-ajax_reload_element, (c) 2016-2017 Richard Henkenjohann */
 (function ($) {
     $.fn.ajaxReloadForm = function (options) {
         options = $.extend({

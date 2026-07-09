@@ -11,9 +11,14 @@
  * @license   https://github.com/dvc/contao-ajax_reload_element/blob/master/LICENSE LGPL-3.0
  */
 
+namespace Dvc\ContaoAjaxReloadElementBundle;
+
+use Symfony\Component\HttpKernel\Bundle\Bundle;
 
 /**
- * Fields
+ * The Bundle class.
  */
-$GLOBALS['TL_LANG']['tl_article']['allowAjaxReload'][0] = 'Allow Ajax reload';
-$GLOBALS['TL_LANG']['tl_article']['allowAjaxReload'][1] = 'This article is allowed to fetch via an ajax request.';
+class DvcContaoAjaxReloadElementBundle extends Bundle
+{
+
+}

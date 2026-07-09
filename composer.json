@@ -1,6 +1,6 @@
 {
-  "name": "richardhj/contao-ajax_reload_element",
-  "version": "4.13.0",
+  "name": "dvc/contao-ajax_reload_element",
+  "version": "4.13.1",
   "description": "AjaxReloadElement for Contao OpenSource CMS",
   "keywords": [
     "contao",
@@ -18,8 +18,8 @@
     }
   ],
   "support": {
-    "issues": "https://github.com/richardhj/contao-ajax_reload_element/issues",
-    "source": "https://github.com/richardhj/contao-ajax_reload_element"
+    "issues": "https://github.com/dvc/contao-ajax_reload_element/issues",
+    "source": "https://github.com/dvc/contao-ajax_reload_element"
   },
   "require": {
     "php": ">=5.5",
@@ -30,11 +30,11 @@
   },
   "autoload": {
     "psr-4": {
-      "Richardhj\\ContaoAjaxReloadElementBundle\\": "src/"
+      "Dvc\\ContaoAjaxReloadElementBundle\\": "src/"
     }
   },
   "extra": {
-    "contao-manager-plugin": "Richardhj\\ContaoAjaxReloadElementBundle\\ContaoManager\\Plugin",
+    "contao-manager-plugin": "Dvc\\ContaoAjaxReloadElementBundle\\ContaoManager\\Plugin",
     "contao": {
       "sources": {
         "src/Resources/public": "assets/ajax_reload_element"

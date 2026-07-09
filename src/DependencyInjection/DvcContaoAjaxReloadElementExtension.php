@@ -1,17 +1,17 @@
 <?php
 
 /**
- * This file is part of richardhj/contao-ajax_reload_element.
+ * This file is part of dvc/contao-ajax_reload_element.
  *
  * Copyright (c) 2016-2018 Richard Henkenjohann
  *
- * @package   richardhj/contao-ajax_reload_element
+ * @package   dvc/contao-ajax_reload_element
  * @author    Richard Henkenjohann <richardhenkenjohann@googlemail.com>
  * @copyright 2016-2018 Richard Henkenjohann
- * @license   https://github.com/richardhj/contao-ajax_reload_element/blob/master/LICENSE LGPL-3.0
+ * @license   https://github.com/dvc/contao-ajax_reload_element/blob/master/LICENSE LGPL-3.0
  */
 
-namespace Richardhj\ContaoAjaxReloadElementBundle\DependencyInjection;
+namespace Dvc\ContaoAjaxReloadElementBundle\DependencyInjection;
 
 use Symfony\Component\Config\FileLocator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -21,7 +21,7 @@ use Symfony\Component\DependencyInjection\Loader\YamlFileLoader;
 /**
  * This is the Bundle extension.
  */
-class RichardhjContaoAjaxReloadElementExtension extends Extension
+class DvcContaoAjaxReloadElementExtension extends Extension
 {
 
     /**

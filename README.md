@@ -157,7 +157,7 @@ option. In addition, you enable the ajax form as stated above (see paragraph «A
 
 ![Demonstration of the modal editing script](https://user-images.githubusercontent.com/1284725/31863229-4013be20-b74b-11e7-890b-d1fa5f105f11.gif)
 
-[ico-version]: https://img.shields.io/packagist/v/richardhj/contao-ajax_reload_element.svg?style=flat-square
+[ico-version]: https://img.shields.io/packagist/v/dvc/contao-ajax_reload_element.svg?style=flat-square
 [ico-license]: https://img.shields.io/badge/license-LGPL-brightgreen.svg?style=flat-square
 
-[link-packagist]: https://packagist.org/packages/richardhj/contao-ajax_reload_element
+[link-packagist]: https://packagist.org/packages/dvc/contao-ajax_reload_element
